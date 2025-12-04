@@ -150,6 +150,7 @@ export function SoundSelector({
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null
   );
+  const playingSoundIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const setupAudio = async () => {
@@ -182,6 +183,7 @@ export function SoundSelector({
         progressIntervalRef.current = null;
       }
       setPlayingSoundId(null);
+      playingSoundIdRef.current = null;
       setPlayProgress(0);
       PreviewService.stopPreview();
     } catch (error) {
@@ -235,6 +237,7 @@ export function SoundSelector({
 
       // Inicia o novo som
       setPlayingSoundId(soundId);
+      playingSoundIdRef.current = soundId;
       setPlayProgress(0);
 
       // Pequeno delay para garantir que o estado foi atualizado
@@ -278,6 +281,8 @@ export function SoundSelector({
       soundInstanceRef.current = audioSound;
 
       let currentSoundId = soundId;
+      let isLooping = true;
+
       audioSound.setOnPlaybackStatusUpdate(async (status) => {
         if (status.isLoaded) {
           if (status.durationMillis && status.positionMillis !== undefined) {
@@ -286,21 +291,27 @@ export function SoundSelector({
           }
 
           // Quando termina, reinicia após 500ms
-          if (status.didJustFinish && playingSoundId === currentSoundId) {
+          if (status.didJustFinish && isLooping) {
+            // Reseta o progresso imediatamente para reiniciar a animação
             setPlayProgress(0);
+
             setTimeout(async () => {
-              // Verifica se ainda está tocando este som
+              // Verifica se ainda está tocando este som usando a ref para ter o valor atualizado
               if (
                 soundInstanceRef.current &&
-                playingSoundId === currentSoundId
+                playingSoundIdRef.current === currentSoundId
               ) {
                 try {
-                  await soundInstanceRef.current.setPositionAsync(0);
+                  // Reseta o progresso novamente antes de reiniciar
                   setPlayProgress(0);
+                  await soundInstanceRef.current.setPositionAsync(0);
                   await soundInstanceRef.current.playAsync();
                 } catch (error) {
                   console.error("Error looping sound:", error);
+                  isLooping = false;
                 }
+              } else {
+                isLooping = false;
               }
             }, 500);
           }
@@ -309,7 +320,10 @@ export function SoundSelector({
 
       // Atualiza progresso periodicamente
       progressIntervalRef.current = setInterval(async () => {
-        if (soundInstanceRef.current) {
+        if (
+          soundInstanceRef.current &&
+          playingSoundIdRef.current === currentSoundId
+        ) {
           try {
             const status = await soundInstanceRef.current.getStatusAsync();
             if (
