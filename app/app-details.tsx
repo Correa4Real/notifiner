@@ -70,7 +70,7 @@ export default function AppDetailsScreen() {
 
         if (
           updatedApp.enabled &&
-          (updates.volume !== undefined || updates.vibrate !== undefined)
+          (updates.volume !== undefined || updates.vibrate !== undefined || updates.vibrationIntensity !== undefined)
         ) {
           const audioFile = await getAudioFileForApp(updatedApp);
           await PreviewService.previewWithSettings(
@@ -79,7 +79,9 @@ export default function AppDetailsScreen() {
             updatedApp.soundUri,
             updatedApp.volume,
             updatedApp.vibrate,
-            audioFile?.fileUri
+            audioFile?.fileUri,
+            undefined,
+            updatedApp.vibrationIntensity || 1.0
           );
         }
       }
@@ -202,6 +204,7 @@ export default function AppDetailsScreen() {
             <SoundSelector
               selectedSound={app.sound || "default"}
               selectedSoundUri={app.soundUri}
+              soundType={app.soundType}
               volume={app.volume}
               vibrate={app.vibrate}
               onSoundSelect={(sound, soundType, soundUri) => {
@@ -230,12 +233,16 @@ export default function AppDetailsScreen() {
                 onValueChange={async (value) => {
                   await updateApp({ vibrate: value });
                   if (app.enabled && value) {
+                    const audioFile = await getAudioFileForApp(app);
                     await PreviewService.previewWithSettings(
                       app.sound || "default",
                       app.soundType,
                       app.soundUri,
                       app.volume,
-                      true
+                      true,
+                      audioFile?.fileUri,
+                      undefined,
+                      app.vibrationIntensity || 1.0
                     );
                   }
                 }}
@@ -246,6 +253,44 @@ export default function AppDetailsScreen() {
                 thumbColor={colors.dark.text}
               />
             </View>
+            {app.vibrate && (
+              <VolumeSlider
+                label="Intensidade de Vibração"
+                value={app.vibrationIntensity || 1.0}
+                onValueChange={async (value) => {
+                  await updateApp({ vibrationIntensity: value });
+                  if (app.enabled) {
+                    const audioFile = await getAudioFileForApp(app);
+                    await PreviewService.previewWithSettings(
+                      app.sound || "default",
+                      app.soundType,
+                      app.soundUri,
+                      app.volume,
+                      true,
+                      audioFile?.fileUri,
+                      undefined,
+                      value
+                    );
+                  }
+                }}
+                onPreview={async (value) => {
+                  if (app.enabled) {
+                    const audioFile = await getAudioFileForApp(app);
+                    await PreviewService.previewWithSettings(
+                      app.sound || "default",
+                      app.soundType,
+                      app.soundUri,
+                      app.volume,
+                      true,
+                      audioFile?.fileUri,
+                      undefined,
+                      value
+                    );
+                  }
+                }}
+                previewEnabled={true}
+              />
+            )}
           </View>
 
           <View style={styles.section}>

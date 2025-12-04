@@ -10,6 +10,7 @@ export interface AppNotification {
   soundUri?: string;
   volume: number;
   vibrate: boolean;
+  vibrationIntensity?: number;
   priority: "low" | "normal" | "high";
   lastNotification?: Date;
 }

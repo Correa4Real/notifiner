@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -13,10 +13,12 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { colors, spacing, typography, borderRadius } from "@/constants/theme";
 import { AudioPickerService, AudioFile } from "@/services/audioPickerService";
 import { PreviewService } from "@/services/previewService";
+import { Audio } from "expo-av";
 
 interface SoundSelectorProps {
   readonly selectedSound: string;
   readonly selectedSoundUri?: string;
+  readonly soundType?: "system" | "custom";
   readonly onSoundSelect: (
     sound: string,
     soundType?: "system" | "custom",
@@ -131,6 +133,7 @@ const audioExtensions = [
 export function SoundSelector({
   selectedSound,
   selectedSoundUri,
+  soundType,
   onSoundSelect,
   volume = 0.8,
   vibrate = true,
@@ -141,10 +144,50 @@ export function SoundSelector({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedExtension, setSelectedExtension] = useState<string>("all");
   const [showExtensionDropdown, setShowExtensionDropdown] = useState(false);
+  const [playingSoundId, setPlayingSoundId] = useState<string | null>(null);
+  const [playProgress, setPlayProgress] = useState<number>(0);
+  const soundInstanceRef = useRef<Audio.Sound | null>(null);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
 
   useEffect(() => {
+    const setupAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+        });
+      } catch (error) {
+        console.error("Error setting audio mode:", error);
+      }
+    };
+
+    setupAudio();
     loadCustomSounds();
+    return () => {
+      stopAllSounds();
+    };
   }, []);
+
+  const stopAllSounds = async () => {
+    try {
+      if (soundInstanceRef.current) {
+        await soundInstanceRef.current.stopAsync();
+        await soundInstanceRef.current.unloadAsync();
+        soundInstanceRef.current = null;
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setPlayingSoundId(null);
+      setPlayProgress(0);
+      PreviewService.stopPreview();
+    } catch (error) {
+      console.error("Error stopping sounds:", error);
+    }
+  };
 
   const loadCustomSounds = async () => {
     setLoading(true);
@@ -172,29 +215,119 @@ export function SoundSelector({
     return matchesSearch && matchesExtension;
   });
 
-  const handlePreview = async (
+  const handlePlayPause = async (
+    soundId: string,
     sound: string,
     soundType: "system" | "custom",
     soundUri?: string,
-    fileUri?: string
+    fileUri?: string,
+    localSoundAsset?: any
   ) => {
-    // Check if it's a local sound
-    const systemSound = systemSounds.find((s) => s.id === sound);
-    if (systemSound?.isLocal && systemSound.sound) {
-      await PreviewService.previewLocalSound(
-        systemSound.sound,
-        volume,
-        vibrate
-      );
-    } else {
-      await PreviewService.previewWithSettings(
-        sound,
-        soundType,
-        soundUri,
-        volume,
-        vibrate,
-        fileUri
-      );
+    try {
+      // Se já está tocando este som, para
+      if (playingSoundId === soundId && soundInstanceRef.current) {
+        await stopAllSounds();
+        return;
+      }
+
+      // Para qualquer som que esteja tocando
+      await stopAllSounds();
+
+      // Inicia o novo som
+      setPlayingSoundId(soundId);
+      setPlayProgress(0);
+
+      // Pequeno delay para garantir que o estado foi atualizado
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      if (vibrate) {
+        PreviewService.previewVibration(1);
+      }
+
+      let soundSource: any;
+      if (localSoundAsset) {
+        soundSource = localSoundAsset;
+      } else if (fileUri?.startsWith("file://")) {
+        soundSource = { uri: fileUri };
+      } else if (
+        soundUri?.startsWith("content://") ||
+        soundUri?.startsWith("file://")
+      ) {
+        soundSource = { uri: soundUri };
+      } else {
+        // Som do sistema - usa PreviewService
+        await PreviewService.previewWithSettings(
+          sound,
+          soundType,
+          soundUri,
+          volume,
+          vibrate,
+          fileUri,
+          undefined,
+          1
+        );
+        return;
+      }
+
+      const { sound: audioSound } = await Audio.Sound.createAsync(soundSource, {
+        shouldPlay: true,
+        volume: Math.max(0, Math.min(1, volume)),
+        isLooping: false,
+      });
+
+      soundInstanceRef.current = audioSound;
+
+      let currentSoundId = soundId;
+      audioSound.setOnPlaybackStatusUpdate(async (status) => {
+        if (status.isLoaded) {
+          if (status.durationMillis && status.positionMillis !== undefined) {
+            const progress = status.positionMillis / status.durationMillis;
+            setPlayProgress(progress);
+          }
+
+          // Quando termina, reinicia após 500ms
+          if (status.didJustFinish && playingSoundId === currentSoundId) {
+            setPlayProgress(0);
+            setTimeout(async () => {
+              // Verifica se ainda está tocando este som
+              if (
+                soundInstanceRef.current &&
+                playingSoundId === currentSoundId
+              ) {
+                try {
+                  await soundInstanceRef.current.setPositionAsync(0);
+                  setPlayProgress(0);
+                  await soundInstanceRef.current.playAsync();
+                } catch (error) {
+                  console.error("Error looping sound:", error);
+                }
+              }
+            }, 500);
+          }
+        }
+      });
+
+      // Atualiza progresso periodicamente
+      progressIntervalRef.current = setInterval(async () => {
+        if (soundInstanceRef.current) {
+          try {
+            const status = await soundInstanceRef.current.getStatusAsync();
+            if (
+              status.isLoaded &&
+              status.durationMillis &&
+              status.positionMillis !== undefined
+            ) {
+              const progress = status.positionMillis / status.durationMillis;
+              setPlayProgress(progress);
+            }
+          } catch (error) {
+            console.error("Error getting playback status:", error);
+          }
+        }
+      }, 100);
+    } catch (error) {
+      console.error("Error playing sound:", error);
+      await stopAllSounds();
     }
   };
 
@@ -209,6 +342,10 @@ export function SoundSelector({
       (item.isLocal &&
         (selectedSound === item.id || selectedSoundUri === localSoundUri)) ||
       (!item.isLocal && selectedSound === item.id && !selectedSoundUri);
+
+    const isPlaying = playingSoundId === item.id;
+    const progress = isPlaying ? playProgress : 0;
+
     return (
       <View style={styles.soundItemContainer}>
         <TouchableOpacity
@@ -222,37 +359,58 @@ export function SoundSelector({
           }}
           activeOpacity={0.7}
         >
-          <MaterialIcons
-            name={item.icon as any}
-            size={24}
-            color={isSelected ? colors.dark.primary : colors.dark.textSecondary}
-          />
-          <Text
-            style={[styles.soundName, isSelected && styles.soundNameSelected]}
-          >
-            {item.name}
-          </Text>
-          {isSelected && (
-            <MaterialIcons
-              name="check-circle"
-              size={20}
-              color={colors.dark.primary}
+          {isPlaying && (
+            <View
+              style={[
+                styles.soundItemFill,
+                {
+                  width: `${progress * 100}%`,
+                },
+              ]}
             />
           )}
+          <View style={styles.soundItemContent}>
+            <MaterialIcons
+              name={item.icon as any}
+              size={24}
+              color={
+                isSelected ? colors.dark.primary : colors.dark.textSecondary
+              }
+            />
+            <Text
+              style={[styles.soundName, isSelected && styles.soundNameSelected]}
+            >
+              {item.name}
+            </Text>
+            {isSelected && (
+              <MaterialIcons
+                name="check-circle"
+                size={20}
+                color={colors.dark.primary}
+              />
+            )}
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.previewButton}
           onPress={() => {
             if (item.isLocal) {
-              handlePreview(item.id, "system", `local:${item.id}`);
+              handlePlayPause(
+                item.id,
+                item.id,
+                "system",
+                `local:${item.id}`,
+                undefined,
+                item.sound
+              );
             } else {
-              handlePreview(item.id, "system");
+              handlePlayPause(item.id, item.id, "system");
             }
           }}
           activeOpacity={0.7}
         >
           <MaterialIcons
-            name="play-arrow"
+            name={isPlaying ? "pause" : "play-arrow"}
             size={20}
             color={colors.dark.primary}
           />
@@ -263,6 +421,10 @@ export function SoundSelector({
 
   const renderCustomSoundItem = ({ item }: { item: AudioFile }) => {
     const isSelected = selectedSoundUri === item.uri;
+    const soundId = `custom-${item.uri}`;
+    const isPlaying = playingSoundId === soundId;
+    const progress = isPlaying ? playProgress : 0;
+
     return (
       <View style={styles.soundItemContainer}>
         <TouchableOpacity
@@ -270,36 +432,59 @@ export function SoundSelector({
           onPress={() => onSoundSelect(item.title, "custom", item.uri)}
           activeOpacity={0.7}
         >
-          <MaterialIcons
-            name="music-note"
-            size={24}
-            color={isSelected ? colors.dark.primary : colors.dark.textSecondary}
-          />
-          <View style={styles.customSoundInfo}>
-            <Text
-              style={[styles.soundName, isSelected && styles.soundNameSelected]}
-            >
-              {item.title}
-            </Text>
-            <Text style={styles.soundArtist}>{item.artist}</Text>
-          </View>
-          {isSelected && (
-            <MaterialIcons
-              name="check-circle"
-              size={20}
-              color={colors.dark.primary}
+          {isPlaying && (
+            <View
+              style={[
+                styles.soundItemFill,
+                {
+                  width: `${progress * 100}%`,
+                },
+              ]}
             />
           )}
+          <View style={styles.soundItemContent}>
+            <MaterialIcons
+              name="music-note"
+              size={24}
+              color={
+                isSelected ? colors.dark.primary : colors.dark.textSecondary
+              }
+            />
+            <View style={styles.customSoundInfo}>
+              <Text
+                style={[
+                  styles.soundName,
+                  isSelected && styles.soundNameSelected,
+                ]}
+              >
+                {item.title}
+              </Text>
+              <Text style={styles.soundArtist}>{item.artist}</Text>
+            </View>
+            {isSelected && (
+              <MaterialIcons
+                name="check-circle"
+                size={20}
+                color={colors.dark.primary}
+              />
+            )}
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.previewButton}
           onPress={() =>
-            handlePreview(item.title, "custom", item.uri, item.fileUri)
+            handlePlayPause(
+              soundId,
+              item.title,
+              "custom",
+              item.uri,
+              item.fileUri
+            )
           }
           activeOpacity={0.7}
         >
           <MaterialIcons
-            name="play-arrow"
+            name={isPlaying ? "pause" : "play-arrow"}
             size={20}
             color={colors.dark.primary}
           />
@@ -307,6 +492,14 @@ export function SoundSelector({
       </View>
     );
   };
+
+  const selectedCustomSound =
+    selectedSoundUri && soundType === "custom"
+      ? customSounds.find((s) => s.uri === selectedSoundUri)
+      : null;
+
+  const isPlayingCustom = playingSoundId === `custom-${selectedSoundUri}`;
+  const customProgress = isPlayingCustom ? playProgress : 0;
 
   return (
     <View style={styles.container}>
@@ -316,6 +509,72 @@ export function SoundSelector({
         keyExtractor={(item) => item.id}
         scrollEnabled={false}
       />
+
+      {selectedCustomSound && (
+        <View style={styles.soundItemContainer}>
+          <TouchableOpacity
+            style={[styles.soundItem, styles.soundItemSelected]}
+            onPress={() => {
+              onSoundSelect(
+                selectedCustomSound.title,
+                "custom",
+                selectedCustomSound.uri
+              );
+            }}
+            activeOpacity={0.7}
+          >
+            {isPlayingCustom && (
+              <View
+                style={[
+                  styles.soundItemFill,
+                  {
+                    width: `${customProgress * 100}%`,
+                  },
+                ]}
+              />
+            )}
+            <View style={styles.soundItemContent}>
+              <MaterialIcons
+                name="music-note"
+                size={24}
+                color={colors.dark.primary}
+              />
+              <View style={styles.customSoundInfo}>
+                <Text style={[styles.soundName, styles.soundNameSelected]}>
+                  {selectedCustomSound.title}
+                </Text>
+                <Text style={styles.soundArtist}>
+                  {selectedCustomSound.artist}
+                </Text>
+              </View>
+              <MaterialIcons
+                name="check-circle"
+                size={20}
+                color={colors.dark.primary}
+              />
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.previewButton}
+            onPress={() => {
+              handlePlayPause(
+                `custom-${selectedCustomSound.uri}`,
+                selectedCustomSound.title,
+                "custom",
+                selectedCustomSound.uri,
+                selectedCustomSound.fileUri
+              );
+            }}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name={isPlayingCustom ? "pause" : "play-arrow"}
+              size={20}
+              color={colors.dark.primary}
+            />
+          </TouchableOpacity>
+        </View>
+      )}
 
       <TouchableOpacity
         style={styles.customButton}
@@ -483,6 +742,27 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     backgroundColor: colors.dark.surfaceVariant,
     flex: 1,
+    overflow: "hidden",
+    position: "relative",
+  },
+  soundItemContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: spacing.md,
+    position: "relative",
+    zIndex: 1,
+  },
+  soundItemFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: colors.dark.primary,
+    opacity: 0.25,
+    zIndex: 0,
+    borderTopLeftRadius: borderRadius.md,
+    borderBottomLeftRadius: borderRadius.md,
   },
   previewButton: {
     width: 40,

@@ -13,13 +13,15 @@ interface VolumeSliderProps {
   readonly onValueChange: (value: number) => void;
   readonly onPreview?: (volume: number) => void;
   readonly previewEnabled?: boolean;
+  readonly label?: string;
 }
 
 export function VolumeSlider({ 
   value, 
   onValueChange, 
   onPreview,
-  previewEnabled = false 
+  previewEnabled = false,
+  label = "Volume"
 }: VolumeSliderProps) {
   const [sliderWidth, setSliderWidth] = useState(0);
   const percentage = Math.round(value * 100);
@@ -84,7 +86,7 @@ export function VolumeSlider({
   return (
     <View style={styles.container}>
       <View style={styles.labelContainer}>
-        <Text style={styles.label}>Volume</Text>
+        <Text style={styles.label}>{label}</Text>
         <Text style={styles.percentage}>{percentage}%</Text>
       </View>
       <View
@@ -134,6 +136,7 @@ const styles = StyleSheet.create({
   label: {
     ...typography.body,
     color: colors.dark.text,
+    textTransform: "capitalize",
   },
   percentage: {
     ...typography.bodySmall,

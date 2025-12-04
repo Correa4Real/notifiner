@@ -75,7 +75,8 @@ class PreviewService {
   static async previewLocalSound(
     soundAsset: any,
     volume: number,
-    vibrate: boolean
+    vibrate: boolean,
+    vibrationIntensity: number = 1.0
   ): Promise<void> {
     try {
       if (this.isPlaying) {
@@ -83,7 +84,7 @@ class PreviewService {
       }
 
       if (vibrate) {
-        this.previewVibration(1.0);
+        this.previewVibration(vibrationIntensity);
       }
 
       if (this.soundInstance) {
@@ -116,7 +117,7 @@ class PreviewService {
     }
   }
 
-  private static previewVibration(intensity: number): void {
+  static previewVibration(intensity: number): void {
     if (Platform.OS !== "android" && Platform.OS !== "ios") {
       return;
     }
@@ -150,7 +151,9 @@ class PreviewService {
     soundUri: string | undefined,
     volume: number,
     vibrate: boolean,
-    fileUri?: string
+    fileUri?: string,
+    localSoundAsset?: any,
+    vibrationIntensity: number = 1.0
   ): Promise<void> {
     try {
       if (this.isPlaying) {
@@ -188,7 +191,8 @@ class PreviewService {
             await this.previewLocalSound(
               localSounds[localSoundId],
               volume,
-              vibrate
+              vibrate,
+              vibrationIntensity
             );
             return;
           } else {
@@ -224,7 +228,7 @@ class PreviewService {
             }
           }
         } else {
-          await this.playSystemNotificationSound(volume, false);
+          await this.playSystemNotificationSound(volume, vibrate, vibrationIntensity);
         }
       }
     } catch (error) {
@@ -234,11 +238,12 @@ class PreviewService {
 
   private static async playSystemNotificationSound(
     volume: number,
-    vibrate: boolean
+    vibrate: boolean,
+    vibrationIntensity: number = 1.0
   ): Promise<void> {
     try {
       if (vibrate) {
-        this.previewVibration(1.0);
+        this.previewVibration(vibrationIntensity);
       }
 
       // Try to play a system notification sound using Audio
@@ -283,14 +288,14 @@ class PreviewService {
           console.error("Failed to play notification sound:", notifError);
           // Last resort: just vibrate
           if (vibrate) {
-            this.previewVibration(1.0);
+            this.previewVibration(vibrationIntensity);
           }
         }
       }
     } catch (error) {
       console.error("Error playing system notification sound:", error);
       if (vibrate) {
-        this.previewVibration(1.0);
+        this.previewVibration(vibrationIntensity);
       }
     }
   }
