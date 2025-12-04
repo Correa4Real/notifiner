@@ -1,5 +1,5 @@
 import * as Notifications from "expo-notifications";
-import { Platform } from "react-native";
+import { Platform, PermissionsAndroid, Alert } from "react-native";
 
 class PermissionService {
   static async requestNotificationPermissions(): Promise<boolean> {
@@ -29,6 +29,48 @@ class PermissionService {
       return true;
     } catch (error) {
       console.error("Error requesting permissions:", error);
+      return false;
+    }
+  }
+
+  static async requestInstalledAppsPermission(): Promise<boolean> {
+    if (Platform.OS !== "android") {
+      return true;
+    }
+
+    try {
+      const apiLevel = Platform.Version;
+      
+      if (apiLevel >= 30) {
+        const permission = "android.permission.QUERY_ALL_PACKAGES";
+        const hasPermission = await PermissionsAndroid.check(permission);
+
+        if (!hasPermission) {
+          const granted = await PermissionsAndroid.request(permission,
+            {
+              title: "Permissão de Acesso a Apps",
+              message:
+                "Este app precisa de permissão para listar aplicativos instalados e gerenciar suas notificações. Esta permissão é essencial para o funcionamento do app.",
+              buttonNeutral: "Perguntar Depois",
+              buttonNegative: "Cancelar",
+              buttonPositive: "Permitir",
+            }
+          );
+
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+            Alert.alert(
+              "Permissão Necessária",
+              "Para gerenciar notificações de outros apps, é necessário conceder a permissão de acesso à lista de aplicativos instalados. Por favor, ative nas configurações do dispositivo.",
+              [{ text: "OK" }]
+            );
+            return false;
+          }
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error requesting installed apps permission:", error);
       return false;
     }
   }

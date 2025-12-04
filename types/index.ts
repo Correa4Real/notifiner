@@ -3,8 +3,11 @@ export interface AppNotification {
   appName: string;
   packageName: string;
   icon?: string;
+  iconUri?: string;
   enabled: boolean;
   sound?: string;
+  soundType?: "system" | "custom";
+  soundUri?: string;
   volume: number;
   vibrate: boolean;
   priority: "low" | "normal" | "high";

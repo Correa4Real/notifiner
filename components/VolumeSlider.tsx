@@ -1,11 +1,10 @@
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  TouchableWithoutFeedback,
   PanResponder,
-  Animated,
 } from "react-native";
 import { colors, spacing, typography, borderRadius } from "@/constants/theme";
 
@@ -17,61 +16,40 @@ interface VolumeSliderProps {
 export function VolumeSlider({ value, onValueChange }: VolumeSliderProps) {
   const [sliderWidth, setSliderWidth] = useState(0);
   const percentage = Math.round(value * 100);
-  const translateX = useRef(new Animated.Value(0)).current;
 
-  React.useEffect(() => {
-    if (sliderWidth > 0) {
-      Animated.timing(translateX, {
-        toValue: value * (sliderWidth - 24),
-        duration: 100,
-        useNativeDriver: false,
-      }).start();
-    }
-  }, [value, sliderWidth]);
+  const calculateValue = (x: number): number => {
+    if (sliderWidth <= 0) return value;
+    const clampedX = Math.max(0, Math.min(sliderWidth, x));
+    return clampedX / sliderWidth;
+  };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        const newX = Math.max(
-          0,
-          Math.min(evt.nativeEvent.locationX - 12, sliderWidth - 24)
-        );
-        const newValue = Math.max(0, Math.min(1, newX / (sliderWidth - 24)));
-        translateX.setValue(newX);
-        onValueChange(newValue);
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        const newX = Math.max(
-          0,
-          Math.min(gestureState.moveX - 12, sliderWidth - 24)
-        );
-        translateX.setValue(newX);
-        const newValue = Math.max(0, Math.min(1, newX / (sliderWidth - 24)));
-        onValueChange(newValue);
-      },
-      onPanResponderRelease: () => {},
-    })
-  ).current;
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (evt) => {
+      if (sliderWidth <= 0) return;
+      const { locationX } = evt.nativeEvent;
+      const newValue = calculateValue(locationX);
+      onValueChange(newValue);
+    },
+    onPanResponderMove: (evt) => {
+      if (sliderWidth <= 0) return;
+      const { locationX } = evt.nativeEvent;
+      const newValue = calculateValue(locationX);
+      onValueChange(newValue);
+    },
+    onPanResponderRelease: () => {},
+  });
 
-  const handleTrackPress = (evt: any) => {
+  const handlePress = (evt: any) => {
+    if (sliderWidth <= 0) return;
     const { locationX } = evt.nativeEvent;
-    const newX = Math.max(0, Math.min(locationX - 12, sliderWidth - 24));
-    const newValue = Math.max(0, Math.min(1, newX / (sliderWidth - 24)));
-    Animated.timing(translateX, {
-      toValue: newX,
-      duration: 100,
-      useNativeDriver: false,
-    }).start();
+    const newValue = calculateValue(locationX);
     onValueChange(newValue);
   };
 
-  const trackFillWidth = translateX.interpolate({
-    inputRange: [0, Math.max(1, sliderWidth - 24)],
-    outputRange: ["0%", "100%"],
-    extrapolate: "clamp",
-  });
+  const thumbPosition = Math.max(0, Math.min(sliderWidth - 12, value * sliderWidth - 12));
+  const fillWidth = value * 100;
 
   return (
     <View style={styles.container}>
@@ -84,32 +62,30 @@ export function VolumeSlider({ value, onValueChange }: VolumeSliderProps) {
         onLayout={(event) => {
           const { width } = event.nativeEvent.layout;
           setSliderWidth(width);
-          translateX.setValue(value * (width - 24));
         }}
+        {...panResponder.panHandlers}
       >
-        <TouchableOpacity
-          style={styles.track}
-          activeOpacity={1}
-          onPress={handleTrackPress}
-        >
-          <Animated.View
-            style={[
-              styles.trackFill,
-              {
-                width: trackFillWidth,
-              },
-            ]}
-          />
-        </TouchableOpacity>
-        <Animated.View
-          style={[
-            styles.thumb,
-            {
-              transform: [{ translateX }],
-            },
-          ]}
-          {...panResponder.panHandlers}
-        />
+        <TouchableWithoutFeedback onPress={handlePress}>
+          <View style={styles.trackContainer}>
+            <View style={styles.track} />
+            <View
+              style={[
+                styles.trackFill,
+                {
+                  width: `${fillWidth}%`,
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.thumb,
+                {
+                  left: thumbPosition,
+                },
+              ]}
+            />
+          </View>
+        </TouchableWithoutFeedback>
       </View>
     </View>
   );
@@ -139,11 +115,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
+  trackContainer: {
+    height: 40,
+    justifyContent: "center",
+    position: "relative",
+  },
   track: {
     height: 4,
     backgroundColor: colors.dark.surfaceVariant,
     borderRadius: borderRadius.sm,
-    position: "relative",
+    position: "absolute",
+    width: "100%",
   },
   trackFill: {
     height: 4,
@@ -158,8 +140,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.dark.primary,
     position: "absolute",
-    top: -10,
-    left: 0,
+    top: 8,
     shadowColor: colors.dark.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,

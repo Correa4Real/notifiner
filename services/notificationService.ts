@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import { AppNotification, NotificationSettings } from "@/types";
+import { InstalledAppsService } from "./installedAppsService";
 
 const STORAGE_KEY = "notification_settings";
 
@@ -29,81 +30,58 @@ class NotificationService {
     settings: NotificationSettings
   ): Promise<void> {
     try {
-      await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(settings));
+      const settingsWithoutIcons = {
+        ...settings,
+        apps: settings.apps.map((app) => {
+          const { iconUri, ...appWithoutIcon } = app;
+          return appWithoutIcon;
+        }),
+      };
+      await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(settingsWithoutIcons));
     } catch (error) {
       console.error("Error saving settings:", error);
     }
   }
 
   static async getInstalledApps(): Promise<AppNotification[]> {
-    const settings = await this.getStoredSettings();
+    try {
+      const installedAppsInfo = await InstalledAppsService.getInstalledApps();
+      const settings = await this.getStoredSettings();
 
-    if (settings.apps.length === 0) {
-      return this.getMockApps();
+      const appsMap = new Map<string, Omit<AppNotification, "iconUri">>();
+      
+      settings.apps.forEach((app) => {
+        const { iconUri, ...appWithoutIcon } = app;
+        appsMap.set(app.packageName, appWithoutIcon);
+      });
+
+      const apps: AppNotification[] = installedAppsInfo.map((appInfo) => {
+        const existingApp = appsMap.get(appInfo.packageName);
+        return InstalledAppsService.convertToAppNotification(
+          appInfo,
+          existingApp
+        );
+      });
+
+      if (apps.length > 0 && apps.length !== settings.apps.length) {
+        const updatedSettings = {
+          ...settings,
+          apps: apps.map((app) => {
+            const { iconUri, ...appWithoutIcon } = app;
+            return appWithoutIcon;
+          }),
+        };
+        await this.saveSettings(updatedSettings);
+      }
+
+      return apps;
+    } catch (error) {
+      console.error("Error getting installed apps:", error);
+      const settings = await this.getStoredSettings();
+      return settings.apps.length > 0 ? settings.apps : [];
     }
-
-    return settings.apps;
   }
 
-  private static getMockApps(): AppNotification[] {
-    return [
-      {
-        id: "1",
-        appName: "WhatsApp",
-        packageName: "com.whatsapp",
-        icon: "💬",
-        enabled: true,
-        sound: "default",
-        volume: 0.8,
-        vibrate: true,
-        priority: "high",
-      },
-      {
-        id: "2",
-        appName: "Gmail",
-        packageName: "com.google.android.gm",
-        icon: "📧",
-        enabled: true,
-        sound: "default",
-        volume: 0.6,
-        vibrate: false,
-        priority: "normal",
-      },
-      {
-        id: "3",
-        appName: "Instagram",
-        packageName: "com.instagram.android",
-        icon: "📷",
-        enabled: true,
-        sound: "default",
-        volume: 0.7,
-        vibrate: true,
-        priority: "normal",
-      },
-      {
-        id: "4",
-        appName: "Telegram",
-        packageName: "org.telegram.messenger",
-        icon: "✈️",
-        enabled: false,
-        sound: "default",
-        volume: 0.9,
-        vibrate: true,
-        priority: "high",
-      },
-      {
-        id: "5",
-        appName: "Twitter",
-        packageName: "com.twitter.android",
-        icon: "🐦",
-        enabled: true,
-        sound: "default",
-        volume: 0.5,
-        vibrate: false,
-        priority: "low",
-      },
-    ];
-  }
 
   static async toggleAppNotification(
     appId: string
@@ -113,26 +91,10 @@ class NotificationService {
 
     if (appIndex >= 0) {
       settings.apps[appIndex].enabled = !settings.apps[appIndex].enabled;
-    } else {
-      const mockApps = this.getMockApps();
-      const app = mockApps.find((a) => a.id === appId);
-      if (app) {
-        app.enabled = !app.enabled;
-        if (settings.apps.length === 0) {
-          settings.apps = mockApps;
-        } else {
-          const existingIndex = settings.apps.findIndex((a) => a.id === appId);
-          if (existingIndex >= 0) {
-            settings.apps[existingIndex] = app;
-          } else {
-            settings.apps.push(app);
-          }
-        }
-      }
+      await this.saveSettings(settings);
     }
 
-    await this.saveSettings(settings);
-    return settings.apps;
+    return await this.getInstalledApps();
   }
 
   static async updateAppSettings(
@@ -143,39 +105,17 @@ class NotificationService {
     const appIndex = settings.apps.findIndex((app) => app.id === appId);
 
     if (appIndex >= 0) {
-      settings.apps[appIndex] = { ...settings.apps[appIndex], ...updates };
-    } else {
-      const mockApps = this.getMockApps();
-      const app = mockApps.find((a) => a.id === appId);
-      if (app) {
-        const updatedApp = { ...app, ...updates };
-        if (settings.apps.length === 0) {
-          settings.apps = mockApps;
-        }
-        const existingIndex = settings.apps.findIndex((a) => a.id === appId);
-        if (existingIndex >= 0) {
-          settings.apps[existingIndex] = updatedApp;
-        } else {
-          settings.apps.push(updatedApp);
-        }
-      }
+      const { iconUri, ...updatesWithoutIcon } = updates;
+      settings.apps[appIndex] = { ...settings.apps[appIndex], ...updatesWithoutIcon };
+      await this.saveSettings(settings);
     }
 
-    await this.saveSettings(settings);
-    return settings.apps;
+    return await this.getInstalledApps();
   }
 
   static async getAppById(appId: string): Promise<AppNotification | null> {
-    const settings = await this.getStoredSettings();
-    let app = settings.apps.find((a) => a.id === appId);
-
-    if (app) {
-      return app;
-    }
-
-    const mockApps = this.getMockApps();
-    const mockApp = mockApps.find((a) => a.id === appId);
-    return mockApp ?? null;
+    const apps = await this.getInstalledApps();
+    return apps.find((a) => a.id === appId) ?? null;
   }
 }
 

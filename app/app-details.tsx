@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  Image,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -43,7 +44,12 @@ export default function AppDetailsScreen() {
     if (!app) return;
     
     try {
-      const updatedApps = await NotificationService.updateAppSettings(app.id, updates);
+      const validatedUpdates = { ...updates };
+      if (typeof validatedUpdates.volume === 'number') {
+        validatedUpdates.volume = Math.max(0, Math.min(1, validatedUpdates.volume));
+      }
+      
+      const updatedApps = await NotificationService.updateAppSettings(app.id, validatedUpdates);
       const updatedApp = updatedApps.find((a) => a.id === app.id);
       if (updatedApp) {
         setApp(updatedApp);
@@ -65,7 +71,13 @@ export default function AppDetailsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <View style={styles.iconContainer}>
-          {app.icon ? (
+          {app.iconUri ? (
+            <Image
+              source={{ uri: app.iconUri }}
+              style={styles.iconImage}
+              resizeMode="contain"
+            />
+          ) : app.icon ? (
             <Text style={styles.iconText}>{app.icon}</Text>
           ) : (
             <MaterialIcons name="apps" size={48} color={colors.dark.primary} />
@@ -194,6 +206,11 @@ const styles = StyleSheet.create({
   },
   iconText: {
     fontSize: 40,
+  },
+  iconImage: {
+    width: 80,
+    height: 80,
+    borderRadius: borderRadius.lg,
   },
   appName: {
     ...typography.h2,

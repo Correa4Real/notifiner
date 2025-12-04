@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -31,9 +32,9 @@ export default function HomeScreen() {
   }, []);
 
   const initializeApp = async () => {
-    const hasPermission =
+    const hasNotificationPermission =
       await PermissionService.checkNotificationPermissions();
-    if (!hasPermission) {
+    if (!hasNotificationPermission) {
       const granted = await PermissionService.requestNotificationPermissions();
       if (!granted) {
         Alert.alert(
@@ -43,6 +44,16 @@ export default function HomeScreen() {
         );
       }
     }
+
+    const hasAppsPermission = await PermissionService.requestInstalledAppsPermission();
+    if (!hasAppsPermission) {
+      Alert.alert(
+        "Permissão Necessária",
+        "Este app precisa de permissão para acessar a lista de aplicativos instalados. Por favor, ative nas configurações.",
+        [{ text: "OK" }]
+      );
+    }
+
     loadApps();
   };
 
@@ -77,7 +88,13 @@ export default function HomeScreen() {
     >
       <View style={styles.appItemContent}>
         <View style={styles.appIconContainer}>
-          {item.icon ? (
+          {item.iconUri ? (
+            <Image
+              source={{ uri: item.iconUri }}
+              style={styles.appIconImage}
+              resizeMode="contain"
+            />
+          ) : item.icon ? (
             <Text style={styles.appIconText}>{item.icon}</Text>
           ) : (
             <MaterialIcons name="apps" size={32} color={colors.dark.primary} />
@@ -176,6 +193,11 @@ const styles = StyleSheet.create({
   },
   appIconText: {
     fontSize: 24,
+  },
+  appIconImage: {
+    width: 56,
+    height: 56,
+    borderRadius: borderRadius.md,
   },
   appInfo: {
     flex: 1,

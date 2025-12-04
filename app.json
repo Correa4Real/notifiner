@@ -17,7 +17,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.notificationmanager.app",
       "infoPlist": {
-        "NSUserNotificationsUsageDescription": "Este app precisa de permissão para gerenciar notificações."
+        "NSUserNotificationsUsageDescription": "Este app precisa de permissão para gerenciar notificações.",
+        "NSLocalNetworkUsageDescription": "Este app precisa acessar a lista de aplicativos instalados para gerenciar suas notificações."
       }
     },
     "android": {
@@ -31,7 +32,9 @@
         "VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.QUERY_ALL_PACKAGES",
+        "android.permission.GET_TASKS"
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false

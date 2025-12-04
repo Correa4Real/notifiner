@@ -1,10 +1,10 @@
-# Notification Manager
+# Notifiner
 
-Um aplicativo mobile desenvolvido com React Native e Expo para gerenciar notificações de aplicativos instalados no dispositivo. Permite controlar volume, sons, vibração e prioridade das notificações de cada app de forma individualizada.
+Um aplicativo mobile desenvolvido com React Native e Expo para gerenciar notificações de aplicativos instalados no dispositivo. Permite controlar volume, sons, vibração e prioridade das notificações de cada app de forma individualizada, dando controle total sobre como cada aplicativo se comporta em relação ao modo do celular (silencioso, vibração ou normal).
 
 ## 📱 Sobre o Projeto
 
-O Notification Manager oferece uma interface intuitiva e moderna para gerenciar todas as notificações do seu dispositivo em um único lugar. Com este app, você pode:
+O Notifiner oferece uma interface intuitiva e moderna para gerenciar todas as notificações do seu dispositivo em um único lugar. Com este app, você pode:
 
 - Visualizar todos os aplicativos instalados
 - Ativar/desativar notificações por app
@@ -12,6 +12,10 @@ O Notification Manager oferece uma interface intuitiva e moderna para gerenciar 
 - Escolher sons de notificação personalizados
 - Controlar vibração por aplicativo
 - Definir prioridade de notificações (baixa, normal, alta)
+- **Enganar o sistema**: Fazer cada app pensar que o celular está em um modo diferente (silencioso, vibração ou normal), permitindo:
+  - Remover som de um app mas manter vibração
+  - Remover som e vibração mas continuar recebendo notificações na tela
+  - Personalizar completamente o comportamento de cada app independente do modo do celular
 
 ## 🚀 Tecnologias Utilizadas
 
@@ -22,6 +26,7 @@ O Notification Manager oferece uma interface intuitiva e moderna para gerenciar 
 - **Expo Notifications** - Gerenciamento de notificações
 - **Expo Secure Store** - Armazenamento seguro de dados
 - **Expo AV** - Reprodução de áudio
+- **Módulo Nativo Android** - Para listar apps instalados e interceptar notificações
 
 ## 📋 Pré-requisitos
 
@@ -31,6 +36,7 @@ Antes de começar, você precisa ter instalado:
 - [npm](https://www.npmjs.com/) ou [yarn](https://yarnpkg.com/)
 - [Expo CLI](https://docs.expo.dev/get-started/installation/)
 - Um dispositivo físico ou emulador (Android/iOS)
+- **Android Studio** (para builds nativos e desenvolvimento do módulo nativo)
 
 ## 🔧 Instalação
 
@@ -45,7 +51,12 @@ cd notifiner
 npm install
 ```
 
-3. Inicie o servidor de desenvolvimento:
+3. Para desenvolvimento com módulo nativo, execute:
+```bash
+npx expo prebuild
+```
+
+4. Inicie o servidor de desenvolvimento:
 ```bash
 npm start
 ```
@@ -70,7 +81,7 @@ npm run web
 ## 📁 Estrutura do Projeto
 
 ```
-notifications-app/
+notifiner/
 ├── app/                    # Rotas do Expo Router
 │   ├── _layout.tsx        # Layout principal
 │   ├── index.tsx          # Tela inicial (lista de apps)
@@ -82,7 +93,16 @@ notifications-app/
 │   └── theme.ts          # Tema e estilos
 ├── services/             # Serviços e lógica de negócio
 │   ├── notificationService.ts  # Gerenciamento de notificações
-│   └── permissionService.ts    # Gerenciamento de permissões
+│   ├── permissionService.ts    # Gerenciamento de permissões
+│   └── installedAppsService.ts # Serviço de apps instalados
+├── modules/               # Módulos nativos
+│   ├── InstalledAppsModule.ts
+│   ├── InstalledAppsModuleNative.ts
+│   └── NativeInstalledAppsModule.ts
+├── android/              # Código nativo Android
+│   └── app/src/main/java/com/notificationmanager/app/
+│       ├── InstalledAppsModule.kt
+│       └── InstalledAppsPackage.kt
 ├── types/                # Definições de tipos TypeScript
 │   └── index.ts
 └── utils/               # Utilitários
@@ -103,17 +123,30 @@ notifications-app/
   - Controle de vibração
   - Definição de prioridade (baixa, normal, alta)
 
+### Funcionalidade Principal: "Enganar o Sistema"
+
+O Notifiner permite que cada aplicativo pense que o celular está em um modo diferente do real:
+
+- **Modo Silencioso Personalizado**: Um app pode ter som desativado mas vibração ativada
+- **Modo Vibração Personalizado**: Um app pode ter vibração desativada mas som ativado
+- **Modo Normal Personalizado**: Um app pode ter som e vibração desativados mas continuar mostrando notificações na tela
+
+Isso é possível através de um `NotificationListenerService` no Android que intercepta as notificações antes de serem exibidas e modifica suas propriedades (som, vibração, prioridade) baseado nas configurações salvas no Notifiner.
+
 ## 🔐 Permissões
 
 O aplicativo requer as seguintes permissões:
 
 ### Android
 - `POST_NOTIFICATIONS` - Para gerenciar notificações
+- `QUERY_ALL_PACKAGES` (Android 11+) - Para listar todos os apps instalados
+- `BIND_NOTIFICATION_LISTENER_SERVICE` - Para interceptar notificações (requer configuração manual nas configurações do sistema)
 - `VIBRATE` - Para controlar vibração
 - `RECEIVE_BOOT_COMPLETED` - Para manter configurações após reinicialização
 
 ### iOS
 - Notificações do usuário - Para gerenciar notificações
+- **Nota**: A interceptação de notificações no iOS é mais limitada devido às restrições do sistema
 
 ## 🛠️ Desenvolvimento
 
@@ -124,9 +157,30 @@ O aplicativo requer as seguintes permissões:
 - `npm run ios` - Executa no iOS
 - `npm run web` - Executa na web
 
+### Configuração do Módulo Nativo
+
+O projeto utiliza um módulo nativo customizado para:
+1. Listar aplicativos instalados
+2. Obter ícones dos aplicativos
+3. Interceptar notificações (em desenvolvimento)
+
+Para mais detalhes, consulte [NATIVE_MODULE_SETUP.md](./NATIVE_MODULE_SETUP.md)
+
 ### Configuração do Ambiente
 
-O projeto utiliza Expo, então não é necessário configurar Android Studio ou Xcode para desenvolvimento básico. Basta ter o Expo Go instalado no seu dispositivo.
+O projeto utiliza Expo com módulos nativos, então é necessário:
+1. Executar `npx expo prebuild` para gerar os arquivos nativos
+2. Ter Android Studio instalado para builds Android
+3. Para desenvolvimento básico, pode usar Expo Go (mas sem módulos nativos)
+
+## 🔮 Funcionalidades Futuras
+
+- [ ] Implementação completa do NotificationListenerService para interceptar notificações
+- [ ] Suporte para regras avançadas (horários, localização, etc)
+- [ ] Modo "Não Perturbe" personalizado por app
+- [ ] Histórico de notificações
+- [ ] Estatísticas de uso de notificações
+- [ ] Suporte completo para iOS
 
 ## 📝 Licença
 
@@ -149,4 +203,3 @@ Contribuições são bem-vindas! Sinta-se à vontade para abrir uma issue ou env
 ---
 
 Desenvolvido com ❤️ usando React Native e Expo
-
