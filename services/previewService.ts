@@ -1,10 +1,69 @@
 import { Audio } from "expo-av";
 import { Vibration, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
+import AudioPlayerModule from "@/modules/AudioPlayerModule";
 
 class PreviewService {
   private static soundInstance: Audio.Sound | null = null;
   private static isPlaying = false;
+  private static audioModeConfigured = false;
+
+  static getSoundInstance(): Audio.Sound | null {
+    return this.soundInstance;
+  }
+
+  static async isCurrentlyPlaying(): Promise<boolean> {
+    if (!this.soundInstance) return false;
+    try {
+      const status = await this.soundInstance.getStatusAsync();
+      return status.isLoaded && (status.isPlaying || this.isPlaying);
+    } catch {
+      return this.isPlaying;
+    }
+  }
+
+  static async setVolume(volume: number): Promise<void> {
+    if (this.soundInstance) {
+      try {
+        const status = await this.soundInstance.getStatusAsync();
+        if (status.isLoaded) {
+          const clampedVolume = Math.max(0, Math.min(1, volume));
+          await this.soundInstance.setVolumeAsync(clampedVolume);
+        }
+      } catch (error) {
+        // Ignore errors
+      }
+    }
+  }
+
+  private static async ensureAudioMode(): Promise<void> {
+    if (this.audioModeConfigured) return;
+
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+      this.audioModeConfigured = true;
+    } catch (error) {
+      // Ignore keep awake errors
+      if (error && typeof error === "object" && "message" in error) {
+        const errorMessage = String(error.message);
+        if (
+          errorMessage.includes("keep awake") ||
+          errorMessage.includes("KeepAwake")
+        ) {
+          // This is expected and can be ignored
+          this.audioModeConfigured = true;
+          return;
+        }
+      }
+      // Only log non-keep-awake errors
+      console.error("Error setting audio mode:", error);
+    }
+  }
 
   static async previewSound(
     soundUri: string | null,
@@ -36,9 +95,9 @@ class PreviewService {
     volume: number
   ): Promise<void> {
     try {
-      if (this.soundInstance) {
-        await this.soundInstance.unloadAsync();
-      }
+      await this.stopPreview();
+
+      await this.ensureAudioMode();
 
       let uriToUse = soundUri;
 
@@ -68,6 +127,7 @@ class PreviewService {
     } catch (error) {
       console.error("Error playing sound:", error);
       this.isPlaying = false;
+      this.soundInstance = null;
       throw error;
     }
   }
@@ -79,21 +139,15 @@ class PreviewService {
     vibrationIntensity: number = 1.0
   ): Promise<void> {
     try {
-      if (this.isPlaying) {
-        await this.stopPreview();
-      }
+      await this.stopPreview();
+
+      await this.ensureAudioMode();
 
       if (vibrate) {
         this.previewVibration(vibrationIntensity);
       }
 
-      if (this.soundInstance) {
-        await this.soundInstance.unloadAsync();
-      }
-
-      // Check if soundAsset is valid
       if (!soundAsset) {
-        console.warn("Sound asset is null or undefined");
         return;
       }
 
@@ -114,6 +168,7 @@ class PreviewService {
     } catch (error) {
       console.error("Error playing local sound:", error);
       this.isPlaying = false;
+      this.soundInstance = null;
     }
   }
 
@@ -134,14 +189,29 @@ class PreviewService {
   static async stopPreview(): Promise<void> {
     try {
       if (this.soundInstance) {
-        await this.soundInstance.stopAsync();
-        await this.soundInstance.unloadAsync();
+        try {
+          const status = await this.soundInstance.getStatusAsync();
+          if (status.isLoaded) {
+            try {
+              await this.soundInstance.stopAsync();
+            } catch (error) {
+              // Ignore errors if already stopped
+            }
+            try {
+              await this.soundInstance.unloadAsync();
+            } catch (error) {
+              // Ignore errors if already unloaded
+            }
+          }
+        } catch (error) {
+          // Ignore errors if sound is not loaded
+        }
         this.soundInstance = null;
       }
       this.isPlaying = false;
       Vibration.cancel();
     } catch (error) {
-      console.error("Error stopping preview:", error);
+      // Ignore all errors in stopPreview
     }
   }
 
@@ -156,16 +226,18 @@ class PreviewService {
     vibrationIntensity: number = 1.0
   ): Promise<void> {
     try {
-      if (this.isPlaying) {
-        await this.stopPreview();
+      if (this.soundInstance) {
+        await this.setVolume(volume);
+        return;
       }
 
+      await this.stopPreview();
+
       if (vibrate) {
-        this.previewVibration(1.0);
+        this.previewVibration(vibrationIntensity);
       }
 
       if (volume > 0) {
-        // Check if it's a local sound (starts with "local:")
         if (soundUri && soundUri.startsWith("local:")) {
           const localSoundId = soundUri.replace("local:", "");
           let localSounds: Record<string, any> = {};
@@ -201,34 +273,16 @@ class PreviewService {
         }
 
         if (soundType === "custom" && soundUri) {
-          let uriToUse: string | null = null;
-
-          if (fileUri && fileUri.startsWith("file://")) {
-            uriToUse = fileUri;
-          } else if (soundUri.startsWith("content://")) {
-            uriToUse = soundUri;
-          }
-
-          if (uriToUse) {
-            try {
-              await this.playSound(uriToUse, "custom", volume);
-            } catch (error) {
-              console.error("Failed to play sound:", error);
-              if (
-                fileUri &&
-                fileUri.startsWith("file://") &&
-                uriToUse !== fileUri
-              ) {
-                try {
-                  await this.playSound(fileUri, "custom", volume);
-                } catch (fallbackError) {
-                  console.error("Failed to play with file URI:", fallbackError);
-                }
-              }
-            }
-          }
+          const uriToUse = soundUri.startsWith("content://")
+            ? soundUri
+            : fileUri || soundUri;
+          await this.playSound(uriToUse, "custom", volume);
         } else {
-          await this.playSystemNotificationSound(volume, vibrate, vibrationIntensity);
+          await this.playSystemNotificationSound(
+            volume,
+            vibrate,
+            vibrationIntensity
+          );
         }
       }
     } catch (error) {
@@ -242,6 +296,8 @@ class PreviewService {
     vibrationIntensity: number = 1.0
   ): Promise<void> {
     try {
+      await this.ensureAudioMode();
+
       if (vibrate) {
         this.previewVibration(vibrationIntensity);
       }
@@ -251,6 +307,15 @@ class PreviewService {
       const defaultSoundUri = "content://settings/system/notification_sound";
 
       try {
+        if (this.soundInstance) {
+          try {
+            await this.soundInstance.unloadAsync();
+          } catch (error) {
+            console.warn("Error unloading previous sound:", error);
+          }
+          this.soundInstance = null;
+        }
+
         const { sound } = await Audio.Sound.createAsync(
           { uri: defaultSoundUri },
           {
@@ -264,8 +329,12 @@ class PreviewService {
         this.isPlaying = true;
 
         sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            this.isPlaying = false;
+          if (status.isLoaded) {
+            if (status.didJustFinish) {
+              this.isPlaying = false;
+            } else if (status.isPlaying) {
+              this.isPlaying = true;
+            }
           }
         });
       } catch (audioError) {
@@ -294,6 +363,7 @@ class PreviewService {
       }
     } catch (error) {
       console.error("Error playing system notification sound:", error);
+      this.soundInstance = null;
       if (vibrate) {
         this.previewVibration(vibrationIntensity);
       }

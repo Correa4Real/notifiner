@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -31,9 +31,17 @@ export default function AppDetailsScreen() {
 
   const [app, setApp] = useState<AppNotification | null>(null);
   const [loading, setLoading] = useState(true);
+  const volumePreviewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPreviewInitializedRef = useRef(false);
 
   useEffect(() => {
     loadAppDetails();
+    isPreviewInitializedRef.current = false;
+    return () => {
+      if (volumePreviewTimeoutRef.current) {
+        clearTimeout(volumePreviewTimeoutRef.current);
+      }
+    };
   }, [appId]);
 
   const loadAppDetails = async () => {
@@ -93,15 +101,29 @@ export default function AppDetailsScreen() {
   const handleVolumePreview = async (volume: number) => {
     if (!app || !app.enabled) return;
 
-    const audioFile = await getAudioFileForApp(app);
-    await PreviewService.previewWithSettings(
-      app.sound || "default",
-      app.soundType,
-      app.soundUri,
-      volume,
-      app.vibrate,
-      audioFile?.fileUri
-    );
+    if (volumePreviewTimeoutRef.current) {
+      clearTimeout(volumePreviewTimeoutRef.current);
+    }
+
+    volumePreviewTimeoutRef.current = setTimeout(async () => {
+      const hasSoundInstance = PreviewService.getSoundInstance() !== null;
+      
+      if (hasSoundInstance || isPreviewInitializedRef.current) {
+        await PreviewService.setVolume(volume);
+        isPreviewInitializedRef.current = true;
+      } else {
+        isPreviewInitializedRef.current = true;
+        const audioFile = await getAudioFileForApp(app);
+        await PreviewService.previewWithSettings(
+          app.sound || "default",
+          app.soundType,
+          app.soundUri,
+          volume,
+          app.vibrate,
+          audioFile?.fileUri
+        );
+      }
+    }, 300);
   };
 
   const getAudioFileForApp = async (

@@ -158,9 +158,20 @@ export function SoundSelector({
         await Audio.setAudioModeAsync({
           playsInSilentModeIOS: true,
           staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
         });
       } catch (error) {
-        console.error("Error setting audio mode:", error);
+        // Ignore keep awake errors
+        if (error && typeof error === "object" && "message" in error) {
+          const errorMessage = String(error.message);
+          if (
+            !errorMessage.includes("keep awake") &&
+            !errorMessage.includes("KeepAwake")
+          ) {
+            console.error("Error setting audio mode:", error);
+          }
+        }
       }
     };
 
@@ -174,8 +185,23 @@ export function SoundSelector({
   const stopAllSounds = async () => {
     try {
       if (soundInstanceRef.current) {
-        await soundInstanceRef.current.stopAsync();
-        await soundInstanceRef.current.unloadAsync();
+        try {
+          const status = await soundInstanceRef.current.getStatusAsync();
+          if (status.isLoaded) {
+            try {
+              await soundInstanceRef.current.stopAsync();
+            } catch (error) {
+              // Ignore
+            }
+            try {
+              await soundInstanceRef.current.unloadAsync();
+            } catch (error) {
+              // Ignore
+            }
+          }
+        } catch (error) {
+          // Ignore
+        }
         soundInstanceRef.current = null;
       }
       if (progressIntervalRef.current) {
@@ -185,9 +211,9 @@ export function SoundSelector({
       setPlayingSoundId(null);
       playingSoundIdRef.current = null;
       setPlayProgress(0);
-      PreviewService.stopPreview();
+      await PreviewService.stopPreview();
     } catch (error) {
-      console.error("Error stopping sounds:", error);
+      // Ignore all errors
     }
   };
 
@@ -226,121 +252,176 @@ export function SoundSelector({
     localSoundAsset?: any
   ) => {
     try {
-      // Se já está tocando este som, para
+      console.log("=== [handlePlayPause] ===");
+      console.log("soundId:", soundId);
+      console.log("sound:", sound);
+      console.log("soundType:", soundType);
+      console.log("soundUri:", soundUri);
+      console.log("fileUri:", fileUri);
+      console.log("localSoundAsset:", localSoundAsset ? "EXISTS" : "UNDEFINED");
+      console.log("volume:", volume);
+      console.log("vibrate:", vibrate);
+
       if (playingSoundId === soundId && soundInstanceRef.current) {
+        console.log("Stopping current sound");
         await stopAllSounds();
         return;
       }
 
-      // Para qualquer som que esteja tocando
       await stopAllSounds();
 
-      // Inicia o novo som
       setPlayingSoundId(soundId);
       playingSoundIdRef.current = soundId;
       setPlayProgress(0);
 
-      // Pequeno delay para garantir que o estado foi atualizado
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      if (vibrate) {
-        PreviewService.previewVibration(1);
-      }
-
-      let soundSource: any;
       if (localSoundAsset) {
-        soundSource = localSoundAsset;
-      } else if (fileUri?.startsWith("file://")) {
-        soundSource = { uri: fileUri };
-      } else if (
-        soundUri?.startsWith("content://") ||
-        soundUri?.startsWith("file://")
-      ) {
-        soundSource = { uri: soundUri };
-      } else {
-        // Som do sistema - usa PreviewService
-        await PreviewService.previewWithSettings(
-          sound,
-          soundType,
-          soundUri,
+        console.log("Using PreviewService with localSoundAsset");
+        await PreviewService.previewLocalSound(
+          localSoundAsset,
           volume,
           vibrate,
-          fileUri,
-          undefined,
           1
         );
+
+        const previewSound = PreviewService.getSoundInstance();
+        if (previewSound) {
+          soundInstanceRef.current = previewSound;
+          let currentSoundId = soundId;
+          let isLooping = true;
+
+          previewSound.setOnPlaybackStatusUpdate(async (status) => {
+            if (status.isLoaded) {
+              if (
+                status.durationMillis &&
+                status.positionMillis !== undefined
+              ) {
+                const progress = status.positionMillis / status.durationMillis;
+                setPlayProgress(progress);
+              }
+
+              if (status.didJustFinish && isLooping) {
+                setPlayProgress(0);
+                setTimeout(async () => {
+                  if (
+                    soundInstanceRef.current &&
+                    playingSoundIdRef.current === currentSoundId
+                  ) {
+                    try {
+                      setPlayProgress(0);
+                      await soundInstanceRef.current.setPositionAsync(0);
+                      await soundInstanceRef.current.playAsync();
+                    } catch (error) {
+                      console.error("Error looping sound:", error);
+                      isLooping = false;
+                    }
+                  } else {
+                    isLooping = false;
+                  }
+                }, 500);
+              }
+            }
+          });
+
+          progressIntervalRef.current = setInterval(async () => {
+            if (
+              soundInstanceRef.current &&
+              playingSoundIdRef.current === currentSoundId
+            ) {
+              try {
+                const status = await soundInstanceRef.current.getStatusAsync();
+                if (
+                  status.isLoaded &&
+                  status.durationMillis &&
+                  status.positionMillis !== undefined
+                ) {
+                  const progress =
+                    status.positionMillis / status.durationMillis;
+                  setPlayProgress(progress);
+                }
+              } catch (error) {
+                console.error("Error getting playback status:", error);
+              }
+            }
+          }, 100);
+        }
         return;
       }
 
-      const { sound: audioSound } = await Audio.Sound.createAsync(soundSource, {
-        shouldPlay: true,
-        volume: Math.max(0, Math.min(1, volume)),
-        isLooping: false,
-      });
+      console.log("Using PreviewService.previewWithSettings for all sounds");
+      await PreviewService.previewWithSettings(
+        sound,
+        soundType,
+        soundUri,
+        volume,
+        vibrate,
+        fileUri,
+        localSoundAsset,
+        1
+      );
 
-      soundInstanceRef.current = audioSound;
+      const previewSound = PreviewService.getSoundInstance();
+      if (previewSound) {
+        soundInstanceRef.current = previewSound;
+        let currentSoundId = soundId;
+        let isLooping = true;
 
-      let currentSoundId = soundId;
-      let isLooping = true;
-
-      audioSound.setOnPlaybackStatusUpdate(async (status) => {
-        if (status.isLoaded) {
-          if (status.durationMillis && status.positionMillis !== undefined) {
-            const progress = status.positionMillis / status.durationMillis;
-            setPlayProgress(progress);
-          }
-
-          // Quando termina, reinicia após 500ms
-          if (status.didJustFinish && isLooping) {
-            // Reseta o progresso imediatamente para reiniciar a animação
-            setPlayProgress(0);
-
-            setTimeout(async () => {
-              // Verifica se ainda está tocando este som usando a ref para ter o valor atualizado
-              if (
-                soundInstanceRef.current &&
-                playingSoundIdRef.current === currentSoundId
-              ) {
-                try {
-                  // Reseta o progresso novamente antes de reiniciar
-                  setPlayProgress(0);
-                  await soundInstanceRef.current.setPositionAsync(0);
-                  await soundInstanceRef.current.playAsync();
-                } catch (error) {
-                  console.error("Error looping sound:", error);
-                  isLooping = false;
-                }
-              } else {
-                isLooping = false;
-              }
-            }, 500);
-          }
-        }
-      });
-
-      // Atualiza progresso periodicamente
-      progressIntervalRef.current = setInterval(async () => {
-        if (
-          soundInstanceRef.current &&
-          playingSoundIdRef.current === currentSoundId
-        ) {
-          try {
-            const status = await soundInstanceRef.current.getStatusAsync();
-            if (
-              status.isLoaded &&
-              status.durationMillis &&
-              status.positionMillis !== undefined
-            ) {
+        previewSound.setOnPlaybackStatusUpdate(async (status) => {
+          if (status.isLoaded) {
+            if (status.durationMillis && status.positionMillis !== undefined) {
               const progress = status.positionMillis / status.durationMillis;
               setPlayProgress(progress);
             }
-          } catch (error) {
-            console.error("Error getting playback status:", error);
+
+            if (status.didJustFinish && isLooping) {
+              setPlayProgress(0);
+              setTimeout(async () => {
+                if (
+                  soundInstanceRef.current &&
+                  playingSoundIdRef.current === currentSoundId
+                ) {
+                  try {
+                    setPlayProgress(0);
+                    await soundInstanceRef.current.setPositionAsync(0);
+                    await soundInstanceRef.current.playAsync();
+                  } catch (error) {
+                    console.error("Error looping sound:", error);
+                    isLooping = false;
+                  }
+                } else {
+                  isLooping = false;
+                }
+              }, 500);
+            }
           }
-        }
-      }, 100);
+        });
+
+        progressIntervalRef.current = setInterval(async () => {
+          if (
+            soundInstanceRef.current &&
+            playingSoundIdRef.current === currentSoundId
+          ) {
+            try {
+              const status = await soundInstanceRef.current.getStatusAsync();
+              if (
+                status.isLoaded &&
+                status.durationMillis &&
+                status.positionMillis !== undefined
+              ) {
+                const progress = status.positionMillis / status.durationMillis;
+                setPlayProgress(progress);
+              }
+            } catch (error) {
+              console.error("Error getting playback status:", error);
+            }
+          }
+        }, 100);
+      }
     } catch (error) {
+      console.error("=== [handlePlayPause] ERROR ===");
       console.error("Error playing sound:", error);
+      console.error("Error details:", JSON.stringify(error, null, 2));
       await stopAllSounds();
     }
   };
