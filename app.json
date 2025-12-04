@@ -34,7 +34,9 @@
         "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.QUERY_ALL_PACKAGES",
-        "android.permission.GET_TASKS"
+        "android.permission.GET_TASKS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_AUDIO"
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false

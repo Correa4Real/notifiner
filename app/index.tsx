@@ -21,15 +21,41 @@ import {
 import { AppNotification } from "@/types";
 import { NotificationService } from "@/services/notificationService";
 import { PermissionService } from "@/services/permissionService";
+import { NotificationListenerService } from "@/services/notificationListenerService";
 
 export default function HomeScreen() {
   const router = useRouter();
   const [apps, setApps] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notificationServiceEnabled, setNotificationServiceEnabled] = useState(false);
 
   useEffect(() => {
     initializeApp();
+    checkNotificationServiceStatus();
+    const interval = setInterval(checkNotificationServiceStatus, 2000);
+    return () => clearInterval(interval);
   }, []);
+
+  const checkNotificationServiceStatus = async () => {
+    const enabled = await NotificationListenerService.isEnabled();
+    setNotificationServiceEnabled(enabled);
+  };
+
+  const handleEnableNotificationService = async () => {
+    await NotificationListenerService.openSettings();
+    Alert.alert(
+      "Ativar Serviço de Notificação",
+      "Por favor, ative o 'Notifiner' na lista de serviços de notificação e volte ao app.",
+      [
+        {
+          text: "OK",
+          onPress: () => {
+            setTimeout(checkNotificationServiceStatus, 1000);
+          },
+        },
+      ]
+    );
+  };
 
   const initializeApp = async () => {
     const hasNotificationPermission =
@@ -132,6 +158,29 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      {!notificationServiceEnabled && (
+        <View style={styles.serviceWarning}>
+          <MaterialIcons
+            name="warning"
+            size={24}
+            color={colors.dark.warning}
+          />
+          <View style={styles.serviceWarningText}>
+            <Text style={styles.serviceWarningTitle}>
+              Serviço de Notificação Desativado
+            </Text>
+            <Text style={styles.serviceWarningMessage}>
+              Para interceptar e modificar notificações, ative o serviço do Notifiner.
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.serviceButton}
+            onPress={handleEnableNotificationService}
+          >
+            <Text style={styles.serviceButtonText}>Ativar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <FlatList
         data={apps}
         renderItem={renderAppItem}
@@ -225,5 +274,40 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.dark.textSecondary,
     marginTop: spacing.md,
+  },
+  serviceWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.dark.surface,
+    padding: spacing.md,
+    margin: spacing.md,
+    borderRadius: borderRadius.md,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.dark.warning,
+  },
+  serviceWarningText: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
+  serviceWarningTitle: {
+    ...typography.body,
+    color: colors.dark.text,
+    fontWeight: "600",
+    marginBottom: spacing.xs,
+  },
+  serviceWarningMessage: {
+    ...typography.caption,
+    color: colors.dark.textSecondary,
+  },
+  serviceButton: {
+    backgroundColor: colors.dark.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.sm,
+  },
+  serviceButtonText: {
+    ...typography.bodySmall,
+    color: colors.dark.text,
+    fontWeight: "600",
   },
 });

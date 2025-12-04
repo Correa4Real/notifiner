@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,16 +11,46 @@ import { colors, spacing, typography, borderRadius } from "@/constants/theme";
 interface VolumeSliderProps {
   readonly value: number;
   readonly onValueChange: (value: number) => void;
+  readonly onPreview?: (volume: number) => void;
+  readonly previewEnabled?: boolean;
 }
 
-export function VolumeSlider({ value, onValueChange }: VolumeSliderProps) {
+export function VolumeSlider({ 
+  value, 
+  onValueChange, 
+  onPreview,
+  previewEnabled = false 
+}: VolumeSliderProps) {
   const [sliderWidth, setSliderWidth] = useState(0);
   const percentage = Math.round(value * 100);
+  const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const calculateValue = (x: number): number => {
     if (sliderWidth <= 0) return value;
     const clampedX = Math.max(0, Math.min(sliderWidth, x));
     return clampedX / sliderWidth;
+  };
+
+  const handleValueChange = (newValue: number) => {
+    onValueChange(newValue);
+    
+    if (previewEnabled && onPreview) {
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+      }
+      
+      previewTimeoutRef.current = setTimeout(() => {
+        onPreview(newValue);
+      }, 100);
+    }
   };
 
   const panResponder = PanResponder.create({
@@ -30,13 +60,13 @@ export function VolumeSlider({ value, onValueChange }: VolumeSliderProps) {
       if (sliderWidth <= 0) return;
       const { locationX } = evt.nativeEvent;
       const newValue = calculateValue(locationX);
-      onValueChange(newValue);
+      handleValueChange(newValue);
     },
     onPanResponderMove: (evt) => {
       if (sliderWidth <= 0) return;
       const { locationX } = evt.nativeEvent;
       const newValue = calculateValue(locationX);
-      onValueChange(newValue);
+      handleValueChange(newValue);
     },
     onPanResponderRelease: () => {},
   });
@@ -45,7 +75,7 @@ export function VolumeSlider({ value, onValueChange }: VolumeSliderProps) {
     if (sliderWidth <= 0) return;
     const { locationX } = evt.nativeEvent;
     const newValue = calculateValue(locationX);
-    onValueChange(newValue);
+    handleValueChange(newValue);
   };
 
   const thumbPosition = Math.max(0, Math.min(sliderWidth - 12, value * sliderWidth - 12));

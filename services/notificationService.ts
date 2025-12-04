@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { AppNotification, NotificationSettings } from "@/types";
 import { InstalledAppsService } from "./installedAppsService";
+import { NotificationListenerService } from "./notificationListenerService";
 
 const STORAGE_KEY = "notification_settings";
 
@@ -37,7 +38,10 @@ class NotificationService {
           return appWithoutIcon;
         }),
       };
-      await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(settingsWithoutIcons));
+      const settingsJson = JSON.stringify(settingsWithoutIcons);
+      await SecureStore.setItemAsync(STORAGE_KEY, settingsJson);
+      
+      await NotificationListenerService.syncSettings(settingsWithoutIcons);
     } catch (error) {
       console.error("Error saving settings:", error);
     }

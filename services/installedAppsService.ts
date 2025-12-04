@@ -135,6 +135,8 @@ class InstalledAppsService {
       iconUri,
       enabled: existingSettings?.enabled ?? true,
       sound: existingSettings?.sound ?? "default",
+      soundType: existingSettings?.soundType ?? "system",
+      soundUri: existingSettings?.soundUri,
       volume: existingSettings?.volume ?? 0.8,
       vibrate: existingSettings?.vibrate ?? true,
       priority: existingSettings?.priority ?? "normal",
